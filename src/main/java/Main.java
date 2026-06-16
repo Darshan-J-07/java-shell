@@ -18,7 +18,7 @@ public class Main {
                 System.out.println("type is a shell builtin");
                 continue;
             }else{
-                System.out.println(s+": not found");
+                System.out.println(s.substring(5)+": not found");
                 continue;
             }   
         }
