@@ -8,14 +8,18 @@ public class Main {
         if(s.startsWith("type")){
             if(s.equals("type echo")){
                 System.out.println("echo is a shell builtin");
+                continue;
             }
             if(s.equals("type exit")){
                 System.out.println("exit is a shell builtin");
+                continue;
             }
             if(s.equals("type type")){
                 System.out.println("type is a shell builtin");
+                continue;
             }else{
                 System.out.println(s+": not found");
+                continue;
             }   
         }
         else if(s.equals("exit")){
