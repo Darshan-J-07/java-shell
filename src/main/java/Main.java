@@ -5,7 +5,20 @@ public class Main {
         while(true){
         System.out.print("$ ");
         String s = sc.nextLine();
-        if(s.equals("exit")){
+        if(s.startsWith("type")){
+            if(s.equals("type echo")){
+                System.out.println("echo is a shell builtin");
+            }
+            if(s.equals("type exit")){
+                System.out.println("exit is a shell builtin");
+            }
+            if(s.equals("type type")){
+                System.out.println("type is a shell builtin");
+            }else{
+                System.out.println(s+": not found");
+            }   
+        }
+        else if(s.equals("exit")){
             break;
         }
         else if(s.startsWith("echo")){
