@@ -89,6 +89,7 @@ public class Main {
             
             if (parts.isEmpty()) continue;
 
+            // Split on pipe tokens
             List<List<String>> pipelineCmds = new ArrayList<>();
             List<String> currentCmd = new ArrayList<>();
             for (String token : parts) {
@@ -102,136 +103,9 @@ public class Main {
             pipelineCmds.add(currentCmd);
 
             if (pipelineCmds.size() > 1) {
-                List<Process> processes = new ArrayList<>();
-                List<Thread> builtinThreads = new ArrayList<>();
-                java.io.InputStream prevIn = null;
-                boolean invalidCmd = false;
-
-                for (int i = 0; i < pipelineCmds.size(); i++) {
-                    List<String> pCmd = pipelineCmds.get(i);
-                    boolean isLast = (i == pipelineCmds.size() - 1);
-                    boolean isFirst = (i == 0);
-                    
-                    if (pCmd.isEmpty()) {
-                        invalidCmd = true;
-                        break;
-                    }
-                    String cCmd = pCmd.get(0);
-
-                    if (builtins.contains(cCmd)) {
-                        java.io.PipedInputStream pis = new java.io.PipedInputStream();
-                        java.io.PipedOutputStream pos = new java.io.PipedOutputStream();
-                        pis.connect(pos);
-
-                        java.io.OutputStream builtinOut;
-                        if (isLast) {
-                            if (redirectOutFile != null) {
-                                File f = new File(redirectOutFile);
-                                if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                                builtinOut = new java.io.FileOutputStream(f, appendOut);
-                            } else {
-                                builtinOut = new java.io.FilterOutputStream(System.out) {
-                                    @Override public void close() {} 
-                                };
-                            }
-                        } else {
-                            builtinOut = pos;
-                        }
-
-                        if (prevIn != null) {
-                            prevIn.close();
-                        }
-
-                        // SNAPSHOT currentDir to make it effectively final for the lambda
-                        final String threadCurrentDir = currentDir;
-                        
-                        Thread t = new Thread(() -> {
-                            try {
-                                executeBuiltin(pCmd, builtinOut, threadCurrentDir, backgroundJobs);
-                            } catch (Exception e) {} finally {
-                                try { builtinOut.close(); } catch (Exception e) {}
-                            }
-                        });
-                        t.start();
-                        builtinThreads.add(t);
-
-                        if (!isLast) {
-                            prevIn = pis;
-                        }
-                    } else {
-                        String execPath = getExecutablePath(cCmd);
-                        if (execPath == null) {
-                            System.out.println(cCmd + ": command not found");
-                            if (prevIn != null) prevIn.close();
-                            invalidCmd = true;
-                            break;
-                        }
-
-                        ProcessBuilder pb = new ProcessBuilder(pCmd);
-                        pb.directory(new File(currentDir));
-
-                        if (isFirst) {
-                            pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
-                        } else {
-                            pb.redirectInput(ProcessBuilder.Redirect.PIPE);
-                        }
-
-                        if (isLast) {
-                            if (redirectOutFile != null) {
-                                File f = new File(redirectOutFile);
-                                if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                                if (appendOut) {
-                                    pb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
-                                } else {
-                                    pb.redirectOutput(f);
-                                }
-                            } else {
-                                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                            }
-
-                            if (redirectErrFile != null) {
-                                File f = new File(redirectErrFile);
-                                if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                                if (appendErr) {
-                                    pb.redirectError(ProcessBuilder.Redirect.appendTo(f));
-                                } else {
-                                    pb.redirectError(f);
-                                }
-                            } else {
-                                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                            }
-                        } else {
-                            pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
-                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                        }
-
-                        Process p = pb.start();
-                        processes.add(p);
-
-                        if (!isFirst && prevIn != null) {
-                            copyStream(prevIn, p.getOutputStream());
-                        }
-
-                        if (!isLast) {
-                            prevIn = p.getInputStream();
-                        }
-                    }
-                }
-
-                if (!invalidCmd) {
-                    if (isBackground && !processes.isEmpty()) {
-                        Process lastProcess = processes.get(processes.size() - 1);
-                        int nextJobId = 1;
-                        for (Job j : backgroundJobs) {
-                            if (j.id >= nextJobId) nextJobId = j.id + 1;
-                        }
-                        System.out.println("[" + nextJobId + "] " + lastProcess.pid());
-                        backgroundJobs.add(new Job(nextJobId, lastProcess, s));
-                    } else {
-                        for (Process p : processes) p.waitFor();
-                        for (Thread t : builtinThreads) t.join();
-                    }
-                }
+                // Multi-stage pipeline
+                currentDir = executePipeline(pipelineCmds, redirectOutFile, redirectErrFile,
+                        appendOut, appendErr, isBackground, backgroundJobs, builtins, currentDir, s);
                 continue;
             }
             
@@ -354,7 +228,226 @@ public class Main {
         }
     }
 
-    private static void executeBuiltin(List<String> parts, java.io.OutputStream out, String currentDir, List<Job> backgroundJobs) throws Exception {
+    /**
+     * Execute a pipeline of N commands (N >= 2).
+     * Each command's stdout feeds the next command's stdin.
+     * Returns possibly-updated currentDir (cd in pipeline is best-effort).
+     */
+    private static String executePipeline(
+            List<List<String>> pipelineCmds,
+            String redirectOutFile, String redirectErrFile,
+            boolean appendOut, boolean appendErr,
+            boolean isBackground,
+            List<Job> backgroundJobs,
+            List<String> builtins,
+            String currentDir,
+            String rawLine) throws Exception {
+
+        int n = pipelineCmds.size();
+        List<Process> processes = new ArrayList<>();
+        // Threads that copy data between pipe stages
+        List<Thread> pipeThreads = new ArrayList<>();
+        // Threads for builtin execution
+        List<Thread> builtinThreads = new ArrayList<>();
+
+        // prevOutputStream: the output stream of the previous stage that we
+        // need to feed into the next stage's stdin.
+        // For external processes this is process.getInputStream().
+        // For builtins we produce output into a PipedOutputStream.
+        java.io.InputStream prevStdout = null;
+
+        boolean error = false;
+
+        for (int i = 0; i < n && !error; i++) {
+            List<String> pCmd = pipelineCmds.get(i);
+            boolean isFirst = (i == 0);
+            boolean isLast  = (i == n - 1);
+
+            if (pCmd.isEmpty()) {
+                System.err.println("syntax error: empty command in pipeline");
+                error = true;
+                break;
+            }
+
+            String cmdName = pCmd.get(0);
+
+            if (builtins.contains(cmdName)) {
+                // ---- BUILTIN in pipeline ----
+                // We run the builtin in a thread.
+                // Its stdin comes from prevStdout (we ignore it for most builtins, but pass for completeness).
+                // Its stdout goes to a pipe so the next stage can read it,
+                //   OR to the real stdout/file if this is the last stage.
+
+                final java.io.InputStream builtinStdin = prevStdout; // may be null for first
+                final java.io.OutputStream builtinStdout;
+                final java.io.InputStream nextStdin;  // what the next stage reads
+
+                if (isLast) {
+                    // Output to real stdout or redirect file
+                    if (redirectOutFile != null) {
+                        File f = new File(redirectOutFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        builtinStdout = new java.io.FileOutputStream(f, appendOut);
+                        nextStdin = null;
+                    } else {
+                        // Write directly to System.out - wrap to prevent close
+                        builtinStdout = new java.io.FilterOutputStream(System.out) {
+                            @Override public void close() { /* don't close System.out */ }
+                        };
+                        nextStdin = null;
+                    }
+                } else {
+                    // Pipe to next stage
+                    java.io.PipedInputStream pis = new java.io.PipedInputStream(65536);
+                    java.io.PipedOutputStream pos = new java.io.PipedOutputStream(pis);
+                    builtinStdout = pos;
+                    nextStdin = pis;
+                }
+
+                final List<String> finalPCmd = pCmd;
+                final String finalCurrentDir = currentDir;
+                final List<Job> finalBgJobs = backgroundJobs;
+
+                Thread t = new Thread(() -> {
+                    try {
+                        // Drain stdin if provided (builtins generally don't use it)
+                        if (builtinStdin != null) {
+                            drainStream(builtinStdin);
+                        }
+                        executeBuiltinToStream(finalPCmd, builtinStdout, finalCurrentDir, finalBgJobs);
+                    } catch (Exception e) {
+                        // ignore
+                    } finally {
+                        try { builtinStdout.close(); } catch (Exception e) {}
+                    }
+                });
+                t.start();
+                builtinThreads.add(t);
+
+                prevStdout = nextStdin; // may be null if last
+
+            } else {
+                // ---- EXTERNAL COMMAND in pipeline ----
+                String execPath = getExecutablePath(cmdName);
+                if (execPath == null) {
+                    System.err.println(cmdName + ": command not found");
+                    // drain prev to avoid broken pipe hanging
+                    if (prevStdout != null) drainStream(prevStdout);
+                    error = true;
+                    break;
+                }
+
+                ProcessBuilder pb = new ProcessBuilder(pCmd);
+                pb.directory(new File(currentDir));
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                // stdin setup
+                if (isFirst && prevStdout == null) {
+                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                } else {
+                    pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                }
+
+                // stdout setup
+                if (isLast) {
+                    if (redirectOutFile != null) {
+                        File f = new File(redirectOutFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        if (appendOut) {
+                            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
+                        } else {
+                            pb.redirectOutput(f);
+                        }
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+                    if (redirectErrFile != null) {
+                        File f = new File(redirectErrFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        if (appendErr) {
+                            pb.redirectError(ProcessBuilder.Redirect.appendTo(f));
+                        } else {
+                            pb.redirectError(f);
+                        }
+                    }
+                } else {
+                    pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                }
+
+                Process p = pb.start();
+                processes.add(p);
+
+                // Feed prevStdout into this process's stdin (if we have piped input)
+                if (prevStdout != null) {
+                    final java.io.InputStream src = prevStdout;
+                    final java.io.OutputStream dst = p.getOutputStream();
+                    Thread pipe = new Thread(() -> {
+                        try {
+                            byte[] buf = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = src.read(buf)) != -1) {
+                                dst.write(buf, 0, bytesRead);
+                            }
+                        } catch (Exception e) {
+                            // broken pipe is normal
+                        } finally {
+                            try { dst.close(); } catch (Exception e) {}
+                            try { src.close(); } catch (Exception e) {}
+                        }
+                    });
+                    pipe.setDaemon(false);
+                    pipe.start();
+                    pipeThreads.add(pipe);
+                }
+
+                if (!isLast) {
+                    prevStdout = p.getInputStream();
+                } else {
+                    prevStdout = null;
+                }
+            }
+        }
+
+        if (!error) {
+            if (isBackground && !processes.isEmpty()) {
+                Process lastProcess = processes.get(processes.size() - 1);
+                int nextJobId = 1;
+                for (Job j : backgroundJobs) {
+                    if (j.id >= nextJobId) nextJobId = j.id + 1;
+                }
+                System.out.println("[" + nextJobId + "] " + lastProcess.pid());
+                backgroundJobs.add(new Job(nextJobId, lastProcess, rawLine));
+            } else {
+                // Wait for all pipe-copier threads first, then processes
+                for (Thread t : pipeThreads) t.join();
+                for (Process p : processes) p.waitFor();
+                for (Thread t : builtinThreads) t.join();
+            }
+        } else {
+            // Cleanup on error
+            for (Process p : processes) {
+                try { p.destroyForcibly(); } catch (Exception e) {}
+            }
+        }
+
+        return currentDir;
+    }
+
+    /** Drain and discard all bytes from a stream (to prevent deadlock/broken-pipe). */
+    private static void drainStream(java.io.InputStream in) {
+        Thread t = new Thread(() -> {
+            try {
+                byte[] buf = new byte[8192];
+                while (in.read(buf) != -1) {}
+            } catch (Exception e) {}
+            finally { try { in.close(); } catch (Exception e) {} }
+        });
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private static void executeBuiltinToStream(List<String> parts, java.io.OutputStream out,
+            String currentDir, List<Job> backgroundJobs) throws Exception {
         String cmd = parts.get(0);
         StringBuilder sb = new StringBuilder();
 
@@ -403,24 +496,6 @@ public class Main {
             out.write(sb.toString().getBytes());
             out.flush();
         }
-    }
-
-    private static void copyStream(java.io.InputStream in, java.io.OutputStream out) {
-        Thread t = new Thread(() -> {
-            try {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) != -1) {
-                    out.write(buf, 0, n);
-                    out.flush();
-                }
-            } catch (Exception e) {} finally {
-                try { out.close(); } catch (Exception e) {}
-                try { in.close(); } catch (Exception e) {}
-            }
-        });
-        t.setDaemon(true);
-        t.start();
     }
 
     private static void checkAndReapJobs(List<Job> backgroundJobs, boolean printRunning) {
