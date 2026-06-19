@@ -82,6 +82,7 @@ public class Main {
         List<String> args = new ArrayList<>();
         StringBuilder currentArg = new StringBuilder();
         boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
         boolean inArg = false;
 
         for (int i = 0; i < input.length(); i++) {
@@ -94,9 +95,19 @@ public class Main {
                     currentArg.append(c);
                 }
                 inArg = true;
+            } else if (inDoubleQuote) {
+                if (c == '"') {
+                    inDoubleQuote = false;
+                } else {
+                    currentArg.append(c);
+                }
+                inArg = true;
             } else {
                 if (c == '\'') {
                     inSingleQuote = true;
+                    inArg = true;
+                } else if (c == '"') {
+                    inDoubleQuote = true;
                     inArg = true;
                 } else if (c == ' ') {
                     if (inArg) {
