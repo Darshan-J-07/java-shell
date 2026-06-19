@@ -20,14 +20,22 @@ public class Main {
             List<String> parts = parseArguments(s);
             if (parts.isEmpty()) continue;
             
-            String redirectFile = null;
+            String redirectOutFile = null;
+            String redirectErrFile = null;
             for (int i = 0; i < parts.size(); i++) {
                 if (parts.get(i).equals(">") || parts.get(i).equals("1>")) {
                     if (i + 1 < parts.size()) {
-                        redirectFile = parts.get(i + 1);
+                        redirectOutFile = parts.get(i + 1);
                         parts.remove(i + 1);
                         parts.remove(i);
-                        break;
+                        i--;
+                    }
+                } else if (parts.get(i).equals("2>")) {
+                    if (i + 1 < parts.size()) {
+                        redirectErrFile = parts.get(i + 1);
+                        parts.remove(i + 1);
+                        parts.remove(i);
+                        i--;
                     }
                 }
             }
@@ -35,24 +43,37 @@ public class Main {
             if (parts.isEmpty()) continue;
             String cmd = parts.get(0);
             
+            if (builtins.contains(cmd)) {
+                if (redirectOutFile != null) {
+                    File f = new File(redirectOutFile);
+                    if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                    Files.writeString(f.toPath(), "");
+                }
+                if (redirectErrFile != null) {
+                    File f = new File(redirectErrFile);
+                    if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                    Files.writeString(f.toPath(), "");
+                }
+            }
+            
             if (cmd.equals("type")) {
                 if (parts.size() < 2) continue;
                 String targetCmd = parts.get(1);
                 
                 if (builtins.contains(targetCmd)) {
-                    output(targetCmd + " is a shell builtin", redirectFile);
+                    output(targetCmd + " is a shell builtin", redirectOutFile);
                     continue;
                 }
                 
                 String execPath = getExecutablePath(targetCmd);
                 if (execPath != null) {
-                    output(targetCmd + " is " + execPath, redirectFile);
+                    output(targetCmd + " is " + execPath, redirectOutFile);
                 } else {
                     System.out.println(targetCmd + ": not found");
                 }
             } 
             else if (cmd.equals("pwd")) {
-                output(currentDir, redirectFile);
+                output(currentDir, redirectOutFile);
             }
             else if (cmd.equals("cd")) {
                 if (parts.size() < 2) continue;
@@ -74,7 +95,7 @@ public class Main {
                 break;
             } 
             else if (cmd.equals("echo")) {
-                output(String.join(" ", parts.subList(1, parts.size())), redirectFile);
+                output(String.join(" ", parts.subList(1, parts.size())), redirectOutFile);
             } 
             else {
                 String execPath = getExecutablePath(cmd);
@@ -82,11 +103,20 @@ public class Main {
                     ProcessBuilder pb = new ProcessBuilder(parts);
                     pb.directory(new File(currentDir));
                     
-                    if (redirectFile != null) {
-                        pb.redirectOutput(new File(redirectFile));
-                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    if (redirectOutFile != null) {
+                        File f = new File(redirectOutFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        pb.redirectOutput(f);
                     } else {
-                        pb.inheritIO();
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+                    
+                    if (redirectErrFile != null) {
+                        File f = new File(redirectErrFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        pb.redirectError(f);
+                    } else {
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                     }
                     
                     Process p = pb.start();
@@ -100,7 +130,9 @@ public class Main {
 
     private static void output(String content, String redirectFile) throws Exception {
         if (redirectFile != null) {
-            Files.writeString(Path.of(redirectFile), content + "\n");
+            File f = new File(redirectFile);
+            if (f.getParentFile() != null) f.getParentFile().mkdirs();
+            Files.writeString(f.toPath(), content + "\n");
         } else {
             System.out.println(content);
         }
