@@ -1,7 +1,6 @@
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -10,7 +9,8 @@ import java.util.Scanner;
 public class Main {
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
-        List<String> builtins = Arrays.asList("echo", "exit", "type", "pwd");
+        List<String> builtins = Arrays.asList("echo", "exit", "type", "pwd", "cd");
+        String currentDir = System.getProperty("user.dir");
         
         while (true) {
             System.out.print("$ ");
@@ -36,7 +36,17 @@ public class Main {
                 }
             } 
             else if (cmd.equals("pwd")) {
-                System.out.println(Paths.get("").toAbsolutePath().toString());
+                System.out.println(currentDir);
+            }
+            else if (cmd.equals("cd")) {
+                String dir = s.substring(3).trim();
+                Path targetPath = Path.of(dir);
+                
+                if (Files.isDirectory(targetPath)) {
+                    currentDir = targetPath.toAbsolutePath().normalize().toString();
+                } else {
+                    System.out.println("cd: " + dir + ": No such file or directory");
+                }
             }
             else if (cmd.equals("exit")) {
                 break;
@@ -50,6 +60,7 @@ public class Main {
                     List<String> commandList = new ArrayList<>(Arrays.asList(parts));
                     
                     ProcessBuilder pb = new ProcessBuilder(commandList);
+                    pb.directory(new File(currentDir));
                     pb.inheritIO();
                     Process p = pb.start();
                     p.waitFor();
