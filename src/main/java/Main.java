@@ -20,6 +20,19 @@ public class Main {
             List<String> parts = parseArguments(s);
             if (parts.isEmpty()) continue;
             
+            String redirectFile = null;
+            for (int i = 0; i < parts.size(); i++) {
+                if (parts.get(i).equals(">") || parts.get(i).equals("1>")) {
+                    if (i + 1 < parts.size()) {
+                        redirectFile = parts.get(i + 1);
+                        parts.remove(i + 1);
+                        parts.remove(i);
+                        break;
+                    }
+                }
+            }
+            
+            if (parts.isEmpty()) continue;
             String cmd = parts.get(0);
             
             if (cmd.equals("type")) {
@@ -27,19 +40,19 @@ public class Main {
                 String targetCmd = parts.get(1);
                 
                 if (builtins.contains(targetCmd)) {
-                    System.out.println(targetCmd + " is a shell builtin");
+                    output(targetCmd + " is a shell builtin", redirectFile);
                     continue;
                 }
                 
                 String execPath = getExecutablePath(targetCmd);
                 if (execPath != null) {
-                    System.out.println(targetCmd + " is " + execPath);
+                    output(targetCmd + " is " + execPath, redirectFile);
                 } else {
                     System.out.println(targetCmd + ": not found");
                 }
             } 
             else if (cmd.equals("pwd")) {
-                System.out.println(currentDir);
+                output(currentDir, redirectFile);
             }
             else if (cmd.equals("cd")) {
                 if (parts.size() < 2) continue;
@@ -61,20 +74,35 @@ public class Main {
                 break;
             } 
             else if (cmd.equals("echo")) {
-                System.out.println(String.join(" ", parts.subList(1, parts.size())));
+                output(String.join(" ", parts.subList(1, parts.size())), redirectFile);
             } 
             else {
                 String execPath = getExecutablePath(cmd);
                 if (execPath != null) {
                     ProcessBuilder pb = new ProcessBuilder(parts);
                     pb.directory(new File(currentDir));
-                    pb.inheritIO();
+                    
+                    if (redirectFile != null) {
+                        pb.redirectOutput(new File(redirectFile));
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    } else {
+                        pb.inheritIO();
+                    }
+                    
                     Process p = pb.start();
                     p.waitFor();
                 } else {
                     System.out.println(cmd + ": command not found");
                 }
             }
+        }
+    }
+
+    private static void output(String content, String redirectFile) throws Exception {
+        if (redirectFile != null) {
+            Files.writeString(Path.of(redirectFile), content + "\n");
+        } else {
+            System.out.println(content);
         }
     }
 
