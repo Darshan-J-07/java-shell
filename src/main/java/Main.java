@@ -28,7 +28,6 @@ public class Main {
         String currentDir = System.getProperty("user.dir");
         
         List<Job> backgroundJobs = new ArrayList<>();
-        int nextJobId = 1;
         
         while (true) {
             checkAndReapJobs(backgroundJobs, false);
@@ -189,9 +188,15 @@ public class Main {
                     
                     Process p = pb.start();
                     if (isBackground) {
+                        int nextJobId = 1;
+                        for (Job j : backgroundJobs) {
+                            if (j.id >= nextJobId) {
+                                nextJobId = j.id + 1;
+                            }
+                        }
+                        
                         System.out.println("[" + nextJobId + "] " + p.pid());
                         backgroundJobs.add(new Job(nextJobId, p, s));
-                        nextJobId++;
                     } else {
                         p.waitFor();
                     }
