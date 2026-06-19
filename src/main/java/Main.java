@@ -145,9 +145,16 @@ public class Main {
                 }
             }
             else if (cmd.equals("jobs")) {
-                for (Job j : backgroundJobs) {
+                for (int k = 0; k < backgroundJobs.size(); k++) {
+                    Job j = backgroundJobs.get(k);
                     if (j.p.isAlive()) {
-                        System.out.printf("[%d]+  %-24s%s\n", j.id, "Running", j.cmd);
+                        char marker = ' ';
+                        if (k == backgroundJobs.size() - 1) {
+                            marker = '+';
+                        } else if (k == backgroundJobs.size() - 2) {
+                            marker = '-';
+                        }
+                        System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Running", j.cmd);
                     }
                 }
                 continue;
