@@ -88,6 +88,87 @@ public class Main {
             }
             
             if (parts.isEmpty()) continue;
+
+            List<List<String>> pipelineCmds = new ArrayList<>();
+            List<String> currentCmd = new ArrayList<>();
+            for (String token : parts) {
+                if (token.equals("|")) {
+                    pipelineCmds.add(currentCmd);
+                    currentCmd = new ArrayList<>();
+                } else {
+                    currentCmd.add(token);
+                }
+            }
+            pipelineCmds.add(currentCmd);
+
+            if (pipelineCmds.size() > 1) {
+                List<ProcessBuilder> builders = new ArrayList<>();
+                boolean invalidCmd = false;
+                for (List<String> pCmd : pipelineCmds) {
+                    if (pCmd.isEmpty()) {
+                        invalidCmd = true;
+                        break;
+                    }
+                    String cCmd = pCmd.get(0);
+                    String execPath = getExecutablePath(cCmd);
+                    if (execPath == null) {
+                        System.out.println(cCmd + ": command not found");
+                        invalidCmd = true;
+                        break;
+                    }
+                    ProcessBuilder pb = new ProcessBuilder(pCmd);
+                    pb.directory(new File(currentDir));
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    builders.add(pb);
+                }
+                
+                if (!invalidCmd) {
+                    builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
+                    
+                    ProcessBuilder lastPb = builders.get(builders.size() - 1);
+                    if (redirectOutFile != null) {
+                        File f = new File(redirectOutFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        if (appendOut) {
+                            lastPb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
+                        } else {
+                            lastPb.redirectOutput(f);
+                        }
+                    } else {
+                        lastPb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+                    
+                    if (redirectErrFile != null) {
+                        File f = new File(redirectErrFile);
+                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                        if (appendErr) {
+                            lastPb.redirectError(ProcessBuilder.Redirect.appendTo(f));
+                        } else {
+                            lastPb.redirectError(f);
+                        }
+                    }
+                    
+                    List<Process> processes = ProcessBuilder.startPipeline(builders);
+                    Process lastProcess = processes.get(processes.size() - 1);
+                    
+                    if (isBackground) {
+                        int nextJobId = 1;
+                        for (Job j : backgroundJobs) {
+                            if (j.id >= nextJobId) {
+                                nextJobId = j.id + 1;
+                            }
+                        }
+                        System.out.println("[" + nextJobId + "] " + lastProcess.pid());
+                        backgroundJobs.add(new Job(nextJobId, lastProcess, s));
+                    } else {
+                        for (Process p : processes) {
+                            p.waitFor();
+                        }
+                    }
+                }
+                continue;
+            }
+            
             String cmd = parts.get(0);
             
             if (builtins.contains(cmd)) {
