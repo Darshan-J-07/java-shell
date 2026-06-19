@@ -381,21 +381,33 @@ public class Main {
                 if (prevStdout != null) {
                     final java.io.InputStream src = prevStdout;
                     final java.io.OutputStream dst = p.getOutputStream();
+                    // Capture the upstream process (the one that produced prevStdout)
+                    // so we can destroy it if downstream closes early (e.g. tail -f | head -n 5)
+                    final Process upstreamProcess = processes.size() >= 2
+                            ? processes.get(processes.size() - 2)
+                            : null;
                     Thread pipe = new Thread(() -> {
                         try {
                             byte[] buf = new byte[8192];
                             int bytesRead;
                             while ((bytesRead = src.read(buf)) != -1) {
-                                dst.write(buf, 0, bytesRead);
+                                try {
+                                    dst.write(buf, 0, bytesRead);
+                                    dst.flush();
+                                } catch (java.io.IOException writeEx) {
+                                    // Downstream closed (broken pipe) — kill upstream
+                                    if (upstreamProcess != null) upstreamProcess.destroy();
+                                    break;
+                                }
                             }
                         } catch (Exception e) {
-                            // broken pipe is normal
+                            // src closed normally
                         } finally {
                             try { dst.close(); } catch (Exception e) {}
                             try { src.close(); } catch (Exception e) {}
                         }
                     });
-                    pipe.setDaemon(false);
+                    pipe.setDaemon(true);
                     pipe.start();
                     pipeThreads.add(pipe);
                 }
@@ -418,10 +430,12 @@ public class Main {
                 System.out.println("[" + nextJobId + "] " + lastProcess.pid());
                 backgroundJobs.add(new Job(nextJobId, lastProcess, rawLine));
             } else {
-                // Wait for all pipe-copier threads first, then processes
-                for (Thread t : pipeThreads) t.join();
+                // Wait for processes first — this lets downstream (e.g. head) exit,
+                // which triggers broken-pipe in the pipe threads, which then terminate.
                 for (Process p : processes) p.waitFor();
                 for (Thread t : builtinThreads) t.join();
+                // Give pipe threads a moment to finish cleanup
+                for (Thread t : pipeThreads) t.join(500);
             }
         } else {
             // Cleanup on error
