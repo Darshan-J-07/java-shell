@@ -40,6 +40,11 @@ public class Main {
             }
             else if (cmd.equals("cd")) {
                 String dir = s.substring(3).trim();
+                
+                if (dir.startsWith("~")) {
+                    dir = dir.replace("~", System.getenv("HOME"));
+                }
+                
                 Path targetPath = Path.of(currentDir).resolve(dir).normalize();
                 
                 if (Files.isDirectory(targetPath)) {
