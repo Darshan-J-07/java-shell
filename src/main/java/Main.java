@@ -43,9 +43,7 @@ public class Main {
             else {
                 String execPath = getExecutablePath(cmd);
                 if (execPath != null) {
-                    List<String> commandList = new ArrayList<>();
-                    commandList.add(execPath);
-                    commandList.addAll(Arrays.asList(parts).subList(1, parts.length));
+                    List<String> commandList = new ArrayList<>(Arrays.asList(parts));
                     
                     ProcessBuilder pb = new ProcessBuilder(commandList);
                     pb.inheritIO();
