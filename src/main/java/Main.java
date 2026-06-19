@@ -1,6 +1,7 @@
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -22,15 +23,27 @@ public class Main {
             
             String redirectOutFile = null;
             String redirectErrFile = null;
+            boolean appendOut = false;
+            
             for (int i = 0; i < parts.size(); i++) {
-                if (parts.get(i).equals(">") || parts.get(i).equals("1>")) {
+                String token = parts.get(i);
+                if (token.equals(">>") || token.equals("1>>")) {
                     if (i + 1 < parts.size()) {
                         redirectOutFile = parts.get(i + 1);
+                        appendOut = true;
                         parts.remove(i + 1);
                         parts.remove(i);
                         i--;
                     }
-                } else if (parts.get(i).equals("2>")) {
+                } else if (token.equals(">") || token.equals("1>")) {
+                    if (i + 1 < parts.size()) {
+                        redirectOutFile = parts.get(i + 1);
+                        appendOut = false;
+                        parts.remove(i + 1);
+                        parts.remove(i);
+                        i--;
+                    }
+                } else if (token.equals("2>")) {
                     if (i + 1 < parts.size()) {
                         redirectErrFile = parts.get(i + 1);
                         parts.remove(i + 1);
@@ -47,7 +60,11 @@ public class Main {
                 if (redirectOutFile != null) {
                     File f = new File(redirectOutFile);
                     if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                    Files.writeString(f.toPath(), "");
+                    if (!appendOut) {
+                        Files.writeString(f.toPath(), "");
+                    } else if (!f.exists()) {
+                        f.createNewFile();
+                    }
                 }
                 if (redirectErrFile != null) {
                     File f = new File(redirectErrFile);
@@ -61,19 +78,19 @@ public class Main {
                 String targetCmd = parts.get(1);
                 
                 if (builtins.contains(targetCmd)) {
-                    output(targetCmd + " is a shell builtin", redirectOutFile);
+                    output(targetCmd + " is a shell builtin", redirectOutFile, appendOut);
                     continue;
                 }
                 
                 String execPath = getExecutablePath(targetCmd);
                 if (execPath != null) {
-                    output(targetCmd + " is " + execPath, redirectOutFile);
+                    output(targetCmd + " is " + execPath, redirectOutFile, appendOut);
                 } else {
                     System.out.println(targetCmd + ": not found");
                 }
             } 
             else if (cmd.equals("pwd")) {
-                output(currentDir, redirectOutFile);
+                output(currentDir, redirectOutFile, appendOut);
             }
             else if (cmd.equals("cd")) {
                 if (parts.size() < 2) continue;
@@ -95,7 +112,7 @@ public class Main {
                 break;
             } 
             else if (cmd.equals("echo")) {
-                output(String.join(" ", parts.subList(1, parts.size())), redirectOutFile);
+                output(String.join(" ", parts.subList(1, parts.size())), redirectOutFile, appendOut);
             } 
             else {
                 String execPath = getExecutablePath(cmd);
@@ -106,7 +123,11 @@ public class Main {
                     if (redirectOutFile != null) {
                         File f = new File(redirectOutFile);
                         if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                        pb.redirectOutput(f);
+                        if (appendOut) {
+                            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
+                        } else {
+                            pb.redirectOutput(f);
+                        }
                     } else {
                         pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     }
@@ -128,11 +149,15 @@ public class Main {
         }
     }
 
-    private static void output(String content, String redirectFile) throws Exception {
+    private static void output(String content, String redirectFile, boolean append) throws Exception {
         if (redirectFile != null) {
             File f = new File(redirectFile);
             if (f.getParentFile() != null) f.getParentFile().mkdirs();
-            Files.writeString(f.toPath(), content + "\n");
+            if (append) {
+                Files.writeString(f.toPath(), content + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            } else {
+                Files.writeString(f.toPath(), content + "\n");
+            }
         } else {
             System.out.println(content);
         }
