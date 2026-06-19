@@ -88,8 +88,6 @@ public class Main {
             }
             
             if (parts.isEmpty()) continue;
-
-            // Split on pipe tokens
             List<List<String>> pipelineCmds = new ArrayList<>();
             List<String> currentCmd = new ArrayList<>();
             for (String token : parts) {
@@ -103,7 +101,6 @@ public class Main {
             pipelineCmds.add(currentCmd);
 
             if (pipelineCmds.size() > 1) {
-                // Multi-stage pipeline
                 currentDir = executePipeline(pipelineCmds, redirectOutFile, redirectErrFile,
                         appendOut, appendErr, isBackground, backgroundJobs, builtins, currentDir, s);
                 continue;
@@ -228,11 +225,7 @@ public class Main {
         }
     }
 
-    /**
-     * Execute a pipeline of N commands (N >= 2).
-     * Each command's stdout feeds the next command's stdin.
-     * Returns possibly-updated currentDir (cd in pipeline is best-effort).
-     */
+    
     private static String executePipeline(
             List<List<String>> pipelineCmds,
             String redirectOutFile, String redirectErrFile,
@@ -245,15 +238,8 @@ public class Main {
 
         int n = pipelineCmds.size();
         List<Process> processes = new ArrayList<>();
-        // Threads that copy data between pipe stages
         List<Thread> pipeThreads = new ArrayList<>();
-        // Threads for builtin execution
         List<Thread> builtinThreads = new ArrayList<>();
-
-        // prevOutputStream: the output stream of the previous stage that we
-        // need to feed into the next stage's stdin.
-        // For external processes this is process.getInputStream().
-        // For builtins we produce output into a PipedOutputStream.
         java.io.InputStream prevStdout = null;
 
         boolean error = false;
@@ -272,32 +258,24 @@ public class Main {
             String cmdName = pCmd.get(0);
 
             if (builtins.contains(cmdName)) {
-                // ---- BUILTIN in pipeline ----
-                // We run the builtin in a thread.
-                // Its stdin comes from prevStdout (we ignore it for most builtins, but pass for completeness).
-                // Its stdout goes to a pipe so the next stage can read it,
-                //   OR to the real stdout/file if this is the last stage.
 
-                final java.io.InputStream builtinStdin = prevStdout; // may be null for first
+                final java.io.InputStream builtinStdin = prevStdout; 
                 final java.io.OutputStream builtinStdout;
-                final java.io.InputStream nextStdin;  // what the next stage reads
+                final java.io.InputStream nextStdin;  
 
                 if (isLast) {
-                    // Output to real stdout or redirect file
                     if (redirectOutFile != null) {
                         File f = new File(redirectOutFile);
                         if (f.getParentFile() != null) f.getParentFile().mkdirs();
                         builtinStdout = new java.io.FileOutputStream(f, appendOut);
                         nextStdin = null;
                     } else {
-                        // Write directly to System.out - wrap to prevent close
                         builtinStdout = new java.io.FilterOutputStream(System.out) {
-                            @Override public void close() { /* don't close System.out */ }
+                            @Override public void close() {  }
                         };
                         nextStdin = null;
                     }
                 } else {
-                    // Pipe to next stage
                     java.io.PipedInputStream pis = new java.io.PipedInputStream(65536);
                     java.io.PipedOutputStream pos = new java.io.PipedOutputStream(pis);
                     builtinStdout = pos;
@@ -310,13 +288,11 @@ public class Main {
 
                 Thread t = new Thread(() -> {
                     try {
-                        // Drain stdin if provided (builtins generally don't use it)
                         if (builtinStdin != null) {
                             drainStream(builtinStdin);
                         }
                         executeBuiltinToStream(finalPCmd, builtinStdout, finalCurrentDir, finalBgJobs);
                     } catch (Exception e) {
-                        // ignore
                     } finally {
                         try { builtinStdout.close(); } catch (Exception e) {}
                     }
@@ -324,14 +300,12 @@ public class Main {
                 t.start();
                 builtinThreads.add(t);
 
-                prevStdout = nextStdin; // may be null if last
+                prevStdout = nextStdin; 
 
             } else {
-                // ---- EXTERNAL COMMAND in pipeline ----
                 String execPath = getExecutablePath(cmdName);
                 if (execPath == null) {
                     System.err.println(cmdName + ": command not found");
-                    // drain prev to avoid broken pipe hanging
                     if (prevStdout != null) drainStream(prevStdout);
                     error = true;
                     break;
@@ -340,15 +314,11 @@ public class Main {
                 ProcessBuilder pb = new ProcessBuilder(pCmd);
                 pb.directory(new File(currentDir));
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-
-                // stdin setup
                 if (isFirst && prevStdout == null) {
                     pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
                 } else {
                     pb.redirectInput(ProcessBuilder.Redirect.PIPE);
                 }
-
-                // stdout setup
                 if (isLast) {
                     if (redirectOutFile != null) {
                         File f = new File(redirectOutFile);
@@ -376,13 +346,9 @@ public class Main {
 
                 Process p = pb.start();
                 processes.add(p);
-
-                // Feed prevStdout into this process's stdin (if we have piped input)
                 if (prevStdout != null) {
                     final java.io.InputStream src = prevStdout;
                     final java.io.OutputStream dst = p.getOutputStream();
-                    // Capture the upstream process (the one that produced prevStdout)
-                    // so we can destroy it if downstream closes early (e.g. tail -f | head -n 5)
                     final Process upstreamProcess = processes.size() >= 2
                             ? processes.get(processes.size() - 2)
                             : null;
@@ -395,13 +361,11 @@ public class Main {
                                     dst.write(buf, 0, bytesRead);
                                     dst.flush();
                                 } catch (java.io.IOException writeEx) {
-                                    // Downstream closed (broken pipe) — kill upstream
                                     if (upstreamProcess != null) upstreamProcess.destroy();
                                     break;
                                 }
                             }
                         } catch (Exception e) {
-                            // src closed normally
                         } finally {
                             try { dst.close(); } catch (Exception e) {}
                             try { src.close(); } catch (Exception e) {}
@@ -430,15 +394,11 @@ public class Main {
                 System.out.println("[" + nextJobId + "] " + lastProcess.pid());
                 backgroundJobs.add(new Job(nextJobId, lastProcess, rawLine));
             } else {
-                // Wait for processes first — this lets downstream (e.g. head) exit,
-                // which triggers broken-pipe in the pipe threads, which then terminate.
                 for (Process p : processes) p.waitFor();
                 for (Thread t : builtinThreads) t.join();
-                // Give pipe threads a moment to finish cleanup
                 for (Thread t : pipeThreads) t.join(500);
             }
         } else {
-            // Cleanup on error
             for (Process p : processes) {
                 try { p.destroyForcibly(); } catch (Exception e) {}
             }
@@ -447,7 +407,7 @@ public class Main {
         return currentDir;
     }
 
-    /** Drain and discard all bytes from a stream (to prevent deadlock/broken-pipe). */
+    
     private static void drainStream(java.io.InputStream in) {
         Thread t = new Thread(() -> {
             try {
