@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Scanner;
 
@@ -145,17 +146,31 @@ public class Main {
                 }
             }
             else if (cmd.equals("jobs")) {
-                for (int k = 0; k < backgroundJobs.size(); k++) {
-                    Job j = backgroundJobs.get(k);
-                    if (j.p.isAlive()) {
-                        char marker = ' ';
-                        if (k == backgroundJobs.size() - 1) {
-                            marker = '+';
-                        } else if (k == backgroundJobs.size() - 2) {
-                            marker = '-';
-                        }
-                        System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Running", j.cmd);
+                Iterator<Job> iterator = backgroundJobs.iterator();
+                int k = 0;
+                int size = backgroundJobs.size();
+                
+                while (iterator.hasNext()) {
+                    Job j = iterator.next();
+                    char marker = ' ';
+                    if (k == size - 1) {
+                        marker = '+';
+                    } else if (k == size - 2) {
+                        marker = '-';
                     }
+                    
+                    if (j.p.isAlive()) {
+                        System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Running", j.cmd);
+                    } else {
+                        String doneCmd = j.cmd;
+                        int ampIndex = doneCmd.lastIndexOf('&');
+                        if (ampIndex != -1) {
+                            doneCmd = doneCmd.substring(0, ampIndex).trim();
+                        }
+                        System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Done", doneCmd);
+                        iterator.remove();
+                    }
+                    k++;
                 }
                 continue;
             }
