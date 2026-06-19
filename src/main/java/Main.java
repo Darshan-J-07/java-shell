@@ -101,12 +101,22 @@ public class Main {
                 }
                 inArg = true;
             } else if (inDoubleQuote) {
-                if (c == '"') {
+                if (c == '\\' && i + 1 < input.length()) {
+                    char next = input.charAt(i + 1);
+                    if (next == '"' || next == '\\' || next == '$' || next == '`' || next == '\n') {
+                        currentArg.append(next);
+                        i++;
+                    } else {
+                        currentArg.append(c);
+                    }
+                    inArg = true;
+                } else if (c == '"') {
                     inDoubleQuote = false;
+                    inArg = true;
                 } else {
                     currentArg.append(c);
+                    inArg = true;
                 }
-                inArg = true;
             } else {
                 if (c == '\\') {
                     isEscaped = true;
