@@ -10,7 +10,7 @@ import java.util.Scanner;
 public class Main {
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
-        List<String> builtins = Arrays.asList("echo", "exit", "type", "pwd", "cd");
+        List<String> builtins = Arrays.asList("echo", "exit", "type", "pwd", "cd", "jobs");
         String currentDir = System.getProperty("user.dir");
         
         while (true) {
@@ -121,6 +121,9 @@ public class Main {
                 } else {
                     System.out.println("cd: " + dir + ": No such file or directory");
                 }
+            }
+            else if (cmd.equals("jobs")) {
+                continue;
             }
             else if (cmd.equals("exit")) {
                 break;
