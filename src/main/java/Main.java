@@ -8,10 +8,26 @@ import java.util.List;
 import java.util.Scanner;
 
 public class Main {
+    
+    static class Job {
+        int id;
+        Process p;
+        String cmd;
+
+        Job(int id, Process p, String cmd) {
+            this.id = id;
+            this.p = p;
+            this.cmd = cmd;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
         List<String> builtins = Arrays.asList("echo", "exit", "type", "pwd", "cd", "jobs");
         String currentDir = System.getProperty("user.dir");
+        
+        List<Job> backgroundJobs = new ArrayList<>();
+        int nextJobId = 1;
         
         while (true) {
             System.out.print("$ ");
@@ -129,6 +145,11 @@ public class Main {
                 }
             }
             else if (cmd.equals("jobs")) {
+                for (Job j : backgroundJobs) {
+                    if (j.p.isAlive()) {
+                        System.out.printf("[%d]+  %-24s%s\n", j.id, "Running", j.cmd);
+                    }
+                }
                 continue;
             }
             else if (cmd.equals("exit")) {
@@ -169,7 +190,9 @@ public class Main {
                     
                     Process p = pb.start();
                     if (isBackground) {
-                        System.out.println("[1] " + p.pid());
+                        System.out.println("[" + nextJobId + "] " + p.pid());
+                        backgroundJobs.add(new Job(nextJobId, p, s));
+                        nextJobId++;
                     } else {
                         p.waitFor();
                     }
