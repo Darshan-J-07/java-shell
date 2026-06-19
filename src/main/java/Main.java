@@ -17,11 +17,14 @@ public class Main {
             String s = sc.nextLine();
             if (s.isEmpty()) continue;
             
-            String[] parts = s.split(" ");
-            String cmd = parts[0];
+            List<String> parts = parseArguments(s);
+            if (parts.isEmpty()) continue;
             
-            if (s.startsWith("type ")) {
-                String targetCmd = s.substring(5).trim();
+            String cmd = parts.get(0);
+            
+            if (cmd.equals("type")) {
+                if (parts.size() < 2) continue;
+                String targetCmd = parts.get(1);
                 
                 if (builtins.contains(targetCmd)) {
                     System.out.println(targetCmd + " is a shell builtin");
@@ -39,7 +42,8 @@ public class Main {
                 System.out.println(currentDir);
             }
             else if (cmd.equals("cd")) {
-                String dir = s.substring(3).trim();
+                if (parts.size() < 2) continue;
+                String dir = parts.get(1);
                 
                 if (dir.startsWith("~")) {
                     dir = dir.replace("~", System.getenv("HOME"));
@@ -56,15 +60,13 @@ public class Main {
             else if (cmd.equals("exit")) {
                 break;
             } 
-            else if (s.startsWith("echo ")) {
-                System.out.println(s.substring(5));
+            else if (cmd.equals("echo")) {
+                System.out.println(String.join(" ", parts.subList(1, parts.size())));
             } 
             else {
                 String execPath = getExecutablePath(cmd);
                 if (execPath != null) {
-                    List<String> commandList = new ArrayList<>(Arrays.asList(parts));
-                    
-                    ProcessBuilder pb = new ProcessBuilder(commandList);
+                    ProcessBuilder pb = new ProcessBuilder(parts);
                     pb.directory(new File(currentDir));
                     pb.inheritIO();
                     Process p = pb.start();
@@ -74,6 +76,44 @@ public class Main {
                 }
             }
         }
+    }
+
+    private static List<String> parseArguments(String input) {
+        List<String> args = new ArrayList<>();
+        StringBuilder currentArg = new StringBuilder();
+        boolean inSingleQuote = false;
+        boolean inArg = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (inSingleQuote) {
+                if (c == '\'') {
+                    inSingleQuote = false;
+                } else {
+                    currentArg.append(c);
+                }
+                inArg = true;
+            } else {
+                if (c == '\'') {
+                    inSingleQuote = true;
+                    inArg = true;
+                } else if (c == ' ') {
+                    if (inArg) {
+                        args.add(currentArg.toString());
+                        currentArg.setLength(0);
+                        inArg = false;
+                    }
+                } else {
+                    currentArg.append(c);
+                    inArg = true;
+                }
+            }
+        }
+        if (inArg) {
+            args.add(currentArg.toString());
+        }
+        return args;
     }
 
     private static String getExecutablePath(String cmd) {
