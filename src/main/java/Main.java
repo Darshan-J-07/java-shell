@@ -21,6 +21,12 @@ public class Main {
             List<String> parts = parseArguments(s);
             if (parts.isEmpty()) continue;
             
+            boolean isBackground = false;
+            if (parts.get(parts.size() - 1).equals("&")) {
+                isBackground = true;
+                parts.remove(parts.size() - 1);
+            }
+            
             String redirectOutFile = null;
             String redirectErrFile = null;
             boolean appendOut = false;
@@ -162,7 +168,11 @@ public class Main {
                     }
                     
                     Process p = pb.start();
-                    p.waitFor();
+                    if (isBackground) {
+                        System.out.println("[1] " + p.pid());
+                    } else {
+                        p.waitFor();
+                    }
                 } else {
                     System.out.println(cmd + ": command not found");
                 }
