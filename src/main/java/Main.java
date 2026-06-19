@@ -40,10 +40,10 @@ public class Main {
             }
             else if (cmd.equals("cd")) {
                 String dir = s.substring(3).trim();
-                Path targetPath = Path.of(dir);
+                Path targetPath = Path.of(currentDir).resolve(dir).normalize();
                 
                 if (Files.isDirectory(targetPath)) {
-                    currentDir = targetPath.toAbsolutePath().normalize().toString();
+                    currentDir = targetPath.toAbsolutePath().toString();
                 } else {
                     System.out.println("cd: " + dir + ": No such file or directory");
                 }
