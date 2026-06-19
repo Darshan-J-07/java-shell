@@ -31,6 +31,8 @@ public class Main {
         int nextJobId = 1;
         
         while (true) {
+            checkAndReapJobs(backgroundJobs, false);
+            
             System.out.print("$ ");
             String s = sc.nextLine();
             if (s.isEmpty()) continue;
@@ -146,32 +148,7 @@ public class Main {
                 }
             }
             else if (cmd.equals("jobs")) {
-                Iterator<Job> iterator = backgroundJobs.iterator();
-                int k = 0;
-                int size = backgroundJobs.size();
-                
-                while (iterator.hasNext()) {
-                    Job j = iterator.next();
-                    char marker = ' ';
-                    if (k == size - 1) {
-                        marker = '+';
-                    } else if (k == size - 2) {
-                        marker = '-';
-                    }
-                    
-                    if (j.p.isAlive()) {
-                        System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Running", j.cmd);
-                    } else {
-                        String doneCmd = j.cmd;
-                        int ampIndex = doneCmd.lastIndexOf('&');
-                        if (ampIndex != -1) {
-                            doneCmd = doneCmd.substring(0, ampIndex).trim();
-                        }
-                        System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Done", doneCmd);
-                        iterator.remove();
-                    }
-                    k++;
-                }
+                checkAndReapJobs(backgroundJobs, true);
                 continue;
             }
             else if (cmd.equals("exit")) {
@@ -222,6 +199,37 @@ public class Main {
                     System.out.println(cmd + ": command not found");
                 }
             }
+        }
+    }
+
+    private static void checkAndReapJobs(List<Job> backgroundJobs, boolean printRunning) {
+        Iterator<Job> iterator = backgroundJobs.iterator();
+        int k = 0;
+        int size = backgroundJobs.size();
+        
+        while (iterator.hasNext()) {
+            Job j = iterator.next();
+            char marker = ' ';
+            if (k == size - 1) {
+                marker = '+';
+            } else if (k == size - 2) {
+                marker = '-';
+            }
+            
+            if (j.p.isAlive()) {
+                if (printRunning) {
+                    System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Running", j.cmd);
+                }
+            } else {
+                String doneCmd = j.cmd;
+                int ampIndex = doneCmd.lastIndexOf('&');
+                if (ampIndex != -1) {
+                    doneCmd = doneCmd.substring(0, ampIndex).trim();
+                }
+                System.out.printf("[%d]%c  %-24s%s\n", j.id, marker, "Done", doneCmd);
+                iterator.remove();
+            }
+            k++;
         }
     }
 
