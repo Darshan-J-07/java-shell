@@ -1,12 +1,12 @@
+import java.util.Scanner;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Scanner;
+import java.util.ArrayList;
+import java.util.Iterator;
 
 public class Main {
     
@@ -102,68 +102,131 @@ public class Main {
             pipelineCmds.add(currentCmd);
 
             if (pipelineCmds.size() > 1) {
-                List<ProcessBuilder> builders = new ArrayList<>();
+                List<Process> processes = new ArrayList<>();
+                List<Thread> builtinThreads = new ArrayList<>();
+                java.io.InputStream prevIn = null;
                 boolean invalidCmd = false;
-                for (List<String> pCmd : pipelineCmds) {
+
+                for (int i = 0; i < pipelineCmds.size(); i++) {
+                    List<String> pCmd = pipelineCmds.get(i);
+                    boolean isLast = (i == pipelineCmds.size() - 1);
+                    boolean isFirst = (i == 0);
+                    
                     if (pCmd.isEmpty()) {
                         invalidCmd = true;
                         break;
                     }
                     String cCmd = pCmd.get(0);
-                    String execPath = getExecutablePath(cCmd);
-                    if (execPath == null) {
-                        System.out.println(cCmd + ": command not found");
-                        invalidCmd = true;
-                        break;
-                    }
-                    ProcessBuilder pb = new ProcessBuilder(pCmd);
-                    pb.directory(new File(currentDir));
-                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                    builders.add(pb);
-                }
-                
-                if (!invalidCmd) {
-                    builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
-                    
-                    ProcessBuilder lastPb = builders.get(builders.size() - 1);
-                    if (redirectOutFile != null) {
-                        File f = new File(redirectOutFile);
-                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                        if (appendOut) {
-                            lastPb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
+
+                    if (builtins.contains(cCmd)) {
+                        java.io.PipedInputStream pis = new java.io.PipedInputStream();
+                        java.io.PipedOutputStream pos = new java.io.PipedOutputStream();
+                        pis.connect(pos);
+
+                        java.io.OutputStream builtinOut;
+                        if (isLast) {
+                            if (redirectOutFile != null) {
+                                File f = new File(redirectOutFile);
+                                if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                                builtinOut = new java.io.FileOutputStream(f, appendOut);
+                            } else {
+                                builtinOut = new java.io.FilterOutputStream(System.out) {
+                                    @Override public void close() {} 
+                                };
+                            }
                         } else {
-                            lastPb.redirectOutput(f);
+                            builtinOut = pos;
+                        }
+
+                        if (prevIn != null) {
+                            prevIn.close();
+                        }
+
+                        Thread t = new Thread(() -> {
+                            try {
+                                executeBuiltin(pCmd, builtinOut, currentDir, backgroundJobs);
+                            } catch (Exception e) {} finally {
+                                try { builtinOut.close(); } catch (Exception e) {}
+                            }
+                        });
+                        t.start();
+                        builtinThreads.add(t);
+
+                        if (!isLast) {
+                            prevIn = pis;
                         }
                     } else {
-                        lastPb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                    }
-                    
-                    if (redirectErrFile != null) {
-                        File f = new File(redirectErrFile);
-                        if (f.getParentFile() != null) f.getParentFile().mkdirs();
-                        if (appendErr) {
-                            lastPb.redirectError(ProcessBuilder.Redirect.appendTo(f));
+                        String execPath = getExecutablePath(cCmd);
+                        if (execPath == null) {
+                            System.out.println(cCmd + ": command not found");
+                            if (prevIn != null) prevIn.close();
+                            invalidCmd = true;
+                            break;
+                        }
+
+                        ProcessBuilder pb = new ProcessBuilder(pCmd);
+                        pb.directory(new File(currentDir));
+
+                        if (isFirst) {
+                            pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
                         } else {
-                            lastPb.redirectError(f);
+                            pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                        }
+
+                        if (isLast) {
+                            if (redirectOutFile != null) {
+                                File f = new File(redirectOutFile);
+                                if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                                if (appendOut) {
+                                    pb.redirectOutput(ProcessBuilder.Redirect.appendTo(f));
+                                } else {
+                                    pb.redirectOutput(f);
+                                }
+                            } else {
+                                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                            }
+
+                            if (redirectErrFile != null) {
+                                File f = new File(redirectErrFile);
+                                if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                                if (appendErr) {
+                                    pb.redirectError(ProcessBuilder.Redirect.appendTo(f));
+                                } else {
+                                    pb.redirectError(f);
+                                }
+                            } else {
+                                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                            }
+                        } else {
+                            pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        }
+
+                        Process p = pb.start();
+                        processes.add(p);
+
+                        if (!isFirst && prevIn != null) {
+                            copyStream(prevIn, p.getOutputStream());
+                        }
+
+                        if (!isLast) {
+                            prevIn = p.getInputStream();
                         }
                     }
-                    
-                    List<Process> processes = ProcessBuilder.startPipeline(builders);
-                    Process lastProcess = processes.get(processes.size() - 1);
-                    
-                    if (isBackground) {
+                }
+
+                if (!invalidCmd) {
+                    if (isBackground && !processes.isEmpty()) {
+                        Process lastProcess = processes.get(processes.size() - 1);
                         int nextJobId = 1;
                         for (Job j : backgroundJobs) {
-                            if (j.id >= nextJobId) {
-                                nextJobId = j.id + 1;
-                            }
+                            if (j.id >= nextJobId) nextJobId = j.id + 1;
                         }
                         System.out.println("[" + nextJobId + "] " + lastProcess.pid());
                         backgroundJobs.add(new Job(nextJobId, lastProcess, s));
                     } else {
-                        for (Process p : processes) {
-                            p.waitFor();
-                        }
+                        for (Process p : processes) p.waitFor();
+                        for (Thread t : builtinThreads) t.join();
                     }
                 }
                 continue;
@@ -286,6 +349,75 @@ public class Main {
                 }
             }
         }
+    }
+
+    private static void executeBuiltin(List<String> parts, java.io.OutputStream out, String currentDir, List<Job> backgroundJobs) throws Exception {
+        String cmd = parts.get(0);
+        StringBuilder sb = new StringBuilder();
+
+        if (cmd.equals("echo")) {
+            sb.append(String.join(" ", parts.subList(1, parts.size()))).append("\n");
+        } else if (cmd.equals("pwd")) {
+            sb.append(currentDir).append("\n");
+        } else if (cmd.equals("type")) {
+            if (parts.size() >= 2) {
+                String targetCmd = parts.get(1);
+                if (Arrays.asList("echo", "exit", "type", "pwd", "cd", "jobs").contains(targetCmd)) {
+                    sb.append(targetCmd).append(" is a shell builtin\n");
+                } else {
+                    String execPath = getExecutablePath(targetCmd);
+                    if (execPath != null) {
+                        sb.append(targetCmd).append(" is ").append(execPath).append("\n");
+                    } else {
+                        sb.append(targetCmd).append(": not found\n");
+                    }
+                }
+            }
+        } else if (cmd.equals("jobs")) {
+            for (int k = 0; k < backgroundJobs.size(); k++) {
+                Job j = backgroundJobs.get(k);
+                if (j.p.isAlive()) {
+                    char marker = ' ';
+                    if (k == backgroundJobs.size() - 1) marker = '+';
+                    else if (k == backgroundJobs.size() - 2) marker = '-';
+                    sb.append(String.format("[%d]%c  %-24s%s\n", j.id, marker, "Running", j.cmd));
+                }
+            }
+        } else if (cmd.equals("cd")) {
+            if (parts.size() >= 2) {
+                String dir = parts.get(1);
+                if (dir.startsWith("~")) dir = dir.replace("~", System.getenv("HOME"));
+                Path targetPath = Path.of(currentDir).resolve(dir).normalize();
+                if (!Files.isDirectory(targetPath)) {
+                    sb.append("cd: ").append(dir).append(": No such file or directory\n");
+                }
+            }
+        } else if (cmd.equals("exit")) {
+            System.exit(0);
+        }
+
+        if (sb.length() > 0) {
+            out.write(sb.toString().getBytes());
+            out.flush();
+        }
+    }
+
+    private static void copyStream(java.io.InputStream in, java.io.OutputStream out) {
+        Thread t = new Thread(() -> {
+            try {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                    out.flush();
+                }
+            } catch (Exception e) {} finally {
+                try { out.close(); } catch (Exception e) {}
+                try { in.close(); } catch (Exception e) {}
+            }
+        });
+        t.setDaemon(true);
+        t.start();
     }
 
     private static void checkAndReapJobs(List<Job> backgroundJobs, boolean printRunning) {
