@@ -83,12 +83,17 @@ public class Main {
         StringBuilder currentArg = new StringBuilder();
         boolean inSingleQuote = false;
         boolean inDoubleQuote = false;
+        boolean isEscaped = false;
         boolean inArg = false;
 
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
 
-            if (inSingleQuote) {
+            if (isEscaped) {
+                currentArg.append(c);
+                inArg = true;
+                isEscaped = false;
+            } else if (inSingleQuote) {
                 if (c == '\'') {
                     inSingleQuote = false;
                 } else {
@@ -103,7 +108,10 @@ public class Main {
                 }
                 inArg = true;
             } else {
-                if (c == '\'') {
+                if (c == '\\') {
+                    isEscaped = true;
+                    inArg = true;
+                } else if (c == '\'') {
                     inSingleQuote = true;
                     inArg = true;
                 } else if (c == '"') {
