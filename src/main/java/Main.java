@@ -1,6 +1,7 @@
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -9,7 +10,7 @@ import java.util.Scanner;
 public class Main {
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
-        List<String> builtins = Arrays.asList("echo", "exit", "type");
+        List<String> builtins = Arrays.asList("echo", "exit", "type", "pwd");
         
         while (true) {
             System.out.print("$ ");
@@ -34,6 +35,9 @@ public class Main {
                     System.out.println(targetCmd + ": not found");
                 }
             } 
+            else if (cmd.equals("pwd")) {
+                System.out.println(Paths.get("").toAbsolutePath().toString());
+            }
             else if (cmd.equals("exit")) {
                 break;
             } 
