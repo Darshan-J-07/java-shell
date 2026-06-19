@@ -1,12 +1,12 @@
-import java.util.Scanner;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Scanner;
 
 public class Main {
     
@@ -142,9 +142,12 @@ public class Main {
                             prevIn.close();
                         }
 
+                        // SNAPSHOT currentDir to make it effectively final for the lambda
+                        final String threadCurrentDir = currentDir;
+                        
                         Thread t = new Thread(() -> {
                             try {
-                                executeBuiltin(pCmd, builtinOut, currentDir, backgroundJobs);
+                                executeBuiltin(pCmd, builtinOut, threadCurrentDir, backgroundJobs);
                             } catch (Exception e) {} finally {
                                 try { builtinOut.close(); } catch (Exception e) {}
                             }
