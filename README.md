@@ -1,203 +1,104 @@
-
 # Java Shell
 
-A Unix-style command-line shell implemented in Java from
-scratch, exploring core operating system concepts such as
-process management, command interpretation, inter-process
-communication and I/O redirection.
+A Unix-style shell written in Java for the CodeCrafters
+[Build Your Own Shell](https://app.codecrafters.io/courses/shell/overview) challenge.
+It implements a command loop, built-ins, external programs, pipelines, output
+redirection, and basic background jobs.
 
-[![Java](https://img.shields.io/badge/Java-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://www.java.com/)
-![Maven](https://img.shields.io/badge/Apache_Maven-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+## Build and run
 
-## Features
+Use JDK 26 and Apache Maven. The launcher also needs a POSIX shell.
+From the repository root, build and run the executable JAR.
 
-- Interactive command-line interface (REPL)
-- Built-in shell commands
-- External program execution
-- PATH-based executable lookup
-- Directory navigation
-- Single and double quote handling
-- Escape character processing
-- Standard output and error redirection
-- Append-mode file redirection
-- Multi-command pipelines
-- Multithreaded stream handling
-- Background process execution
-- Background job tracking
-
-## Supported Commands
-
-| Command | Description |
-|---------|-------------|
-| `echo` | Display text in the terminal |
-| `pwd` | Print the current working directory |
-| `cd` | Change the working directory |
-| `type` | Identify built-in and external commands |
-| `jobs` | Display background jobs |
-| `exit` | Terminate the shell |
-
-External executable programs are located using the
-system's PATH environment variable.
-
-## Shell Operators
-
-| Operator | Description |
-|----------|-------------|
-| `>` | Redirect standard output |
-| `>>` | Append standard output |
-| `2>` | Redirect standard error |
-| `2>>` | Append standard error |
-| `\|` | Connect commands through a pipeline |
-| `&` | Execute a process in the background |
-
-## Architecture
-
-The shell processes commands through the following stages:
-
-```text
-User Input
-    |
-    v
-Command Parser
-    |
-    v
-Command Dispatcher
-    |
-    +-- Built-in Commands
-    |
-    +-- External Process Execution
-    |
-    +-- Pipeline Execution
-    |
-    +-- Background Job Management
-    |
-    v
-Output / File Redirection
+```sh
+mvn clean verify
+java -jar target/codecrafters-shell.jar
 ```
 
-The implementation uses Java's ProcessBuilder API for
-external process execution and Java threads for transferring
-data between processes in pipelines.
+On a Unix-like system, `./your_program.sh` builds the JAR and launches it in
+the calling directory. The launcher skips test execution. Run `mvn test` to
+run the parser unit tests and child-process integration tests separately.
 
-## Technology Stack
+CodeCrafters uses `.codecrafters/compile.sh` followed by `.codecrafters/run.sh`
+with the `java-26` buildpack in `codecrafters.yml`. The compile script writes
+the JAR to `/tmp/codecrafters-build-shell-java`.
 
-- Java
-- Apache Maven
-- Java ProcessBuilder API
-- Java Multithreading
-- Java I/O and NIO APIs
-- Unix/Linux Shell Concepts
+## Commands and syntax
 
-## Getting Started
+| Built-in | Behavior |
+| --- | --- |
+| `echo [args...]` | Prints the arguments separated by one space. |
+| `pwd` | Prints the shell's current directory. |
+| `cd [path]` | Changes directory. With no path or with `~`, it uses `HOME`, falling back to Java's user home. |
+| `type name` | Reports a built-in or the executable found in `PATH`. |
+| `jobs` | Lists running background jobs and reports any completed jobs since the preceding check. |
+| `exit` | Exits the shell. End-of-file also exits. |
 
-### Prerequisites
+External commands can use an explicit path or a name found in `PATH`. Child
+processes, relative `PATH` entries, and relative redirection targets use the
+shell's current directory.
 
-- JDK 26
-- Apache Maven
-- Linux, macOS or WSL
+Single quotes preserve literal text. Double quotes keep spaces and support
+backslash escapes for double quotes, backslashes, dollar signs, and backticks.
+Outside quotes a backslash escapes the next character. Adjacent quoted and
+unquoted fragments form one argument, and empty quotes produce an empty
+argument. Quoted and escaped operators are argument text. Blank input displays
+another prompt. Malformed input produces a diagnostic and returns to the prompt.
 
-### Installation
+| Operator | Behavior |
+| --- | --- |
+| `>` or `1>` | Writes stdout to a file, replacing existing content. |
+| `>>` or `1>>` | Appends stdout to a file. |
+| `2>` | Writes stderr to a file, replacing existing content. |
+| `2>>` | Appends stderr to a file. |
+| `\|` | Connects one stage's stdout to the next stage's stdin. |
+| `&` | Runs the command or pipeline in the background when placed at the end. |
 
-Clone the repository:
+Redirections apply to individual pipeline stages. Redirecting a stage's
+stdout sends its output to the file and the next stage receives EOF. Missing
+parent directories are created for output redirection, as in the original
+project. A foreground external command or first pipeline stage can read the
+shell's input. Background jobs start with closed stdin.
 
-```bash
-git clone https://github.com/Darshan-J-07/java-shell.git
-cd java-shell
-```
-
-### Running the Shell
-
-```bash
-bash your_program.sh
-```
-
-## Example Commands
-
-Built-in commands:
-
-```bash
-echo Hello World
-pwd
-cd /tmp
-type echo
-```
-
-Output redirection:
-
-```bash
-echo Hello > output.txt
-echo World >> output.txt
-```
-
-Command pipelines:
-
-```bash
-echo hello | wc -c
-cat output.txt | sort
-```
-
-Background processes:
-
-```bash
-sleep 10 &
+```sh
+echo 'literal | and &' a\ b
+echo first > "logs/run log"
+echo second >> "logs/run log"
+ls missing 2> logs/errors
+echo hello | tr a-z A-Z | wc -c
+sleep 10 | cat &
 jobs
 ```
 
-Exit the shell:
+Job completion is checked at prompts and by `jobs`. A pipeline remains active
+until all its stages finish. A background built-in runs with isolated shell
+state and has a job number without an OS process ID. A pipeline's `cd` or `exit`
+applies only to that stage. On exit or EOF the shell stops tracked children
+and attempts to stop descendants that are still visible.
 
-```bash
-exit
-```
+The supported syntax covers the features above. History, tab completion,
+substitutions, globbing, input redirection, descriptor duplication, and terminal
+job control are outside the current implementation.
 
-## Project Structure
+## Source layout
 
-```text
-java-shell/
-├── .codecrafters/
-├── src/
-│   └── main/
-│       └── java/
-│           └── Main.java
-├── .gitignore
-├── codecrafters.yml
-├── pom.xml
-├── your_program.sh
-└── README.md
-```
-
-## Concepts Explored
-
-- Operating system fundamentals
-- Process creation and lifecycle management
-- Inter-process communication
-- Concurrent execution and multithreading
-- Command parsing and tokenization
-- File handling and stream management
-- Environment variables
-- System-level programming
-
-## Future Improvements
-
-- Command history
-- Tab autocompletion
-- Improved signal handling
-- Enhanced error handling
-- Modular command parser
-- Automated unit and integration tests
-- Expanded POSIX compatibility
+- `Main.java` and `Shell.java` handle the command loop, working directory, and
+  built-in commands.
+- `CommandLine.java` parses commands, quoting, and operators.
+- `Executables.java` resolves explicit paths and searches `PATH`.
+- `Pipeline.java` and `RedirectFiles.java` launch commands, connect streams, and
+  manage redirection files.
+- `Jobs.java` tracks background pipelines and reports completion.
+- `src/test/java` contains parser tests and integration tests that launch the
+  shell and real child processes.
 
 ## Acknowledgements
 
-This project was developed as part of the
+This project was developed by **J. Darshan** as part of the
 [Build Your Own Shell](https://app.codecrafters.io/courses/shell/overview)
 challenge by CodeCrafters.
 
 [![Progress](https://backend.codecrafters.io/progress/shell/fc020e95-5e79-4ae7-aebf-fb25c3759329)](https://app.codecrafters.io/users/darshan1117?r=2qF)
-
-## Author
-
-**J. Darshan**
 
 [GitHub](https://github.com/Darshan-J-07) |
 [LinkedIn](https://www.linkedin.com/in/darshan-j07)

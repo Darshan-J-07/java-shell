@@ -8,17 +8,11 @@
 
 set -e # Exit early if any commands fail
 
-# Copied from .codecrafters/compile.sh
-#
-# - Edit this to change how your program compiles locally
-# - Edit .codecrafters/compile.sh to change how your program compiles remotely
+project_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+
 (
-  cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  mvn -q -B package -Ddir=/tmp/codecrafters-build-shell-java
+  cd "$project_dir"
+  mvn -q -B package -DskipTests
 )
 
-# Copied from .codecrafters/run.sh
-#
-# - Edit this to change how your program runs locally
-# - Edit .codecrafters/run.sh to change how your program runs remotely
-exec java --enable-native-access=ALL-UNNAMED --enable-preview -jar /tmp/codecrafters-build-shell-java/codecrafters-shell.jar "$@"
+exec java -jar "$project_dir/target/codecrafters-shell.jar" "$@"
