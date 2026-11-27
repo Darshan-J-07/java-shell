@@ -80,6 +80,42 @@ The supported syntax covers the features above. History, tab completion,
 substitutions, globbing, input redirection, descriptor duplication, and terminal
 job control are outside the current implementation.
 
+## Demonstration
+
+### Build and test verification
+
+![PowerShell showing the Java and Maven versions, 31 passing tests, and BUILD SUCCESS](docs/screenshots/build-verification.png)
+
+The Windows build runs the parser and integration suites, packages the JAR, and launches it from PowerShell.
+
+### Built-ins, navigation, and quoting
+
+![Java Shell running echo, pwd, type, and cd, preserving quoted text, and reporting an unknown command](docs/screenshots/shell-demo.png)
+
+The shell changes into a directory with spaces in its name, preserves quoted operators as text, and returns to the prompt after an invalid command.
+
+### Pipelines, redirection, and jobs
+
+![Java Shell running a three-stage pipeline, writing and appending to a file, and listing a running background job](docs/screenshots/advanced-features.png)
+
+The Linux session counts words through a three-stage pipeline, writes and appends lines to a file, and reports a running background job with `jobs`.
+
+## Testing
+
+Run `mvn clean verify` to execute the tests and build the runnable JAR.
+The build passed on Windows 11 with Eclipse Temurin 26.0.2.1 and Apache
+Maven 3.9.12.
+
+| Test suite | Passed | Failed | Errors | Skipped |
+| --- | ---: | ---: | ---: | ---: |
+| Parser unit tests | 18 | 0 | 0 | 0 |
+| Shell integration tests | 13 | 0 | 0 | 0 |
+| **Total** | **31** | **0** | **0** | **0** |
+
+The tests cover quoting, escapes, built-ins, external commands, directory
+navigation, redirection, pipelines, background jobs, and EOF. The integration
+tests launch the shell and real child processes.
+
 ## Source layout
 
 - `Main.java` and `Shell.java` handle the command loop, working directory, and
